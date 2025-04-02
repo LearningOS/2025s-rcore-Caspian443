@@ -10,6 +10,9 @@
 //! `sys_` then the name of the syscall. You can find functions like this in
 //! submodules, and you should also implement syscalls this way.
 
+/// maximum syscall number
+pub const MAX_SYSCALL_NUM: usize = 512;
+
 /// write syscall
 const SYSCALL_WRITE: usize = 64;
 /// exit syscall
@@ -21,14 +24,27 @@ const SYSCALL_GET_TIME: usize = 169;
 /// trace syscall
 const SYSCALL_TRACE: usize = 410;
 
+/// syscall info
+#[derive(Clone , Copy)]
+pub struct SyscallInfo {
+    /// syscall id
+    pub id: usize,
+    /// syscall times
+    pub times: usize
+}
+
 mod fs;
 mod process;
 
 use fs::*;
 use process::*;
+use crate::task::update_syscall_num;
 
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
+    // update syscall times
+    update_syscall_num(syscall_id);
+
     match syscall_id {
         SYSCALL_WRITE => sys_write(args[0], args[1] as *const u8, args[2]),
         SYSCALL_EXIT => sys_exit(args[0] as i32),
@@ -37,4 +53,5 @@ pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
         SYSCALL_TRACE => sys_trace(args[0], args[1], args[2]),
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
+
 }

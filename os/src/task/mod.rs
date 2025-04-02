@@ -22,6 +22,7 @@ use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
 
 pub use context::TaskContext;
+use crate::syscall::SyscallInfo;
 
 /// The task manager, where all the tasks are managed.
 ///
@@ -54,6 +55,7 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+            call: array_init::array_init(|i| SyscallInfo { id: i, times: 0 }),
         }; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -134,6 +136,9 @@ impl TaskManager {
         } else {
             panic!("All applications completed!");
         }
+
+
+
     }
 }
 
@@ -168,4 +173,18 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+
+/// Get the number of syscalls with `syscall_id`
+pub fn get_syscall_num(syscall_id: usize) -> usize {
+    let inner = TASK_MANAGER.inner.exclusive_access();
+    let current = inner.current_task;
+    inner.tasks[current].call[syscall_id].times
+}
+
+/// Update the number of syscalls with `syscall_id`
+pub fn update_syscall_num(syscall_id: usize) {
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let current = inner.current_task;
+    inner.tasks[current].call[syscall_id].times+=1; 
 }
