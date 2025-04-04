@@ -15,6 +15,7 @@ mod switch;
 mod task;
 
 use crate::loader::{get_app_data, get_num_app};
+use crate::mm::{MapPermission, VirtAddr, VirtPageNum};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
@@ -153,6 +154,50 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+    /// Maps a memory region at the specified virtual address with given permissions.
+    pub fn task_mmap(
+        &self,
+        virt_addr: VirtAddr,
+        len: usize,
+        permission: MapPermission,
+    ) -> Result<VirtAddr, ()> {
+        
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let memory_set = &mut inner.tasks[current].memory_set;
+
+        // Create a new map area with the given parameters
+        let start_va = virt_addr;
+        let end_va = VirtAddr::from(virt_addr.0 + len);
+
+        // check valid
+        let start_vpn = VirtPageNum::from(start_va);
+        let end_vpn = VirtPageNum::from(end_va.ceil());
+        for vpn in start_vpn.0 .. end_vpn.0 {
+            if let Some(pte) = memory_set.translate(VirtPageNum(vpn)) {
+                if pte.is_valid() {
+                    println!("vpn {} has been occupied!", vpn);
+                    return Err(());
+                }
+            }
+        }
+
+        // Insert the map area into the memory set
+        memory_set.insert_framed_area(start_va, end_va, permission);
+
+        // Return the starting virtual address on success
+        Ok(start_va)
+    }
+
+    /// Unmaps a memory region at the specified virtual address.
+    pub fn task_munmap(&self, start: usize, len: usize) -> Result<(), ()> {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let memory_set = &mut inner.tasks[current].memory_set;
+
+        memory_set.unmmap(start, len)
+    }
+
 }
 
 /// Run the first task in task list.
@@ -201,4 +246,18 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// Get the syscall number of the current task
+pub fn get_syscall_num(syscall_id: usize) -> usize {
+    let inner = TASK_MANAGER.inner.exclusive_access();
+    let current = inner.current_task;
+    inner.tasks[current].call[syscall_id].times
+}
+
+/// Update the syscall number of the current task
+pub fn update_syscall_num(syscall_id: usize) {
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let current = inner.current_task;
+    inner.tasks[current].call[syscall_id].times += 1;
 }

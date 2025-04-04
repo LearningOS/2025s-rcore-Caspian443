@@ -16,13 +16,53 @@ pub use address::{PhysAddr, PhysPageNum, VirtAddr, VirtPageNum};
 use address::{StepByOne, VPNRange};
 pub use frame_allocator::{frame_alloc, FrameTracker};
 pub use memory_set::remap_test;
-pub use memory_set::{kernel_stack_position, MapPermission, MemorySet, KERNEL_SPACE};
+pub use memory_set::{kernel_stack_position, MapPermission, MemorySet, KERNEL_SPACE,MapArea};
 pub use page_table::{translated_byte_buffer, PageTableEntry};
 pub use page_table::{PTEFlags, PageTable};
+
+use crate::task::current_user_token;
 
 /// initiate heap allocator, frame allocator and kernel space
 pub fn init() {
     heap_allocator::init_heap();
     frame_allocator::init_frame_allocator();
     KERNEL_SPACE.exclusive_access().activate();
+}
+
+/// convert a virtual address to a physical address
+pub fn virt2phys_addr(virt_addr: VirtAddr) -> Option<PhysAddr> {
+    let offset = virt_addr.page_offset();
+    let vpn = virt_addr.floor();
+    let ppn = PageTable::from_token(current_user_token())
+        .translate(vpn)
+        .and_then(|pte| {
+            if pte.is_valid() {
+                Some(pte.ppn())
+            } else {
+                None
+            }
+        });
+
+    if let Some(ppn) = ppn {
+        Some(PhysAddr::combine(ppn, offset))
+    } else {
+        println!("virt2phys_addr() fail");
+        None
+    }
+}
+
+/// Check if the virtual address is readable
+pub fn is_readable(virt_addr: VirtAddr) -> bool {
+    let vpn = virt_addr.floor();
+    PageTable::from_token(current_user_token())
+        .translate(vpn)
+        .map_or(false, |pte| pte.is_valid() && pte.readable())
+}
+
+/// Check if the virtual address is writable
+pub fn is_writable(virt_addr: VirtAddr) -> bool {
+    let vpn = virt_addr.floor();
+    PageTable::from_token(current_user_token())
+        .translate(vpn)
+        .map_or(false, |pte| pte.is_valid() && pte.writable())
 }

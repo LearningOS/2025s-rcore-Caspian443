@@ -249,6 +249,8 @@ impl MemorySet {
     }
 
     /// append the area to new_end
+    /// 
+    /// Returns true if the operation succeeds, false otherwise.
     #[allow(unused)]
     pub fn append_to(&mut self, start: VirtAddr, new_end: VirtAddr) -> bool {
         if let Some(area) = self
@@ -262,6 +264,34 @@ impl MemorySet {
             false
         }
     }
+
+    /// unmmap a range of virtual addresses to physical addresses
+    pub fn unmmap(&mut self, start: usize, len: usize) -> Result<(), ()> {
+        let va_start: VirtAddr = start.into();
+        if !va_start.aligned() {
+            debug!("unmap fail don't aligned");
+            return Err(());
+        }
+        let mut va_start: VirtPageNum = va_start.into();
+    
+        let va_end: VirtAddr = (start + len).into();
+        let va_end: VirtPageNum = va_end.ceil();
+    
+        while va_start != va_end {
+            // println!("unmap va_start = {}", va_start.0);
+            if let Some(item) = self.page_table.translate(va_start) {
+                if !item.is_valid() {
+                    debug!("unmap on no map vpn");
+                    return Err(());
+                }
+            } else {
+                return Err(());
+            }
+            self.page_table.unmap(va_start);
+            va_start.step();
+        }
+        return Ok(());
+    }
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {
@@ -272,6 +302,7 @@ pub struct MapArea {
 }
 
 impl MapArea {
+    /// Create a new MapArea instance with specified start virtual address, end virtual address, mapping type, and permission
     pub fn new(
         start_va: VirtAddr,
         end_va: VirtAddr,
@@ -287,6 +318,8 @@ impl MapArea {
             map_perm,
         }
     }
+
+    /// Map a single virtual page number to a physical page number in the page table
     pub fn map_one(&mut self, page_table: &mut PageTable, vpn: VirtPageNum) {
         let ppn: PhysPageNum;
         match self.map_type {
@@ -302,6 +335,7 @@ impl MapArea {
         let pte_flags = PTEFlags::from_bits(self.map_perm.bits).unwrap();
         page_table.map(vpn, ppn, pte_flags);
     }
+    /// Unmap a single virtual page number from the page table
     #[allow(unused)]
     pub fn unmap_one(&mut self, page_table: &mut PageTable, vpn: VirtPageNum) {
         if self.map_type == MapType::Framed {
@@ -309,17 +343,20 @@ impl MapArea {
         }
         page_table.unmap(vpn);
     }
+    /// Get the start virtual page number
     pub fn map(&mut self, page_table: &mut PageTable) {
         for vpn in self.vpn_range {
             self.map_one(page_table, vpn);
         }
     }
+    /// Unmap the entire range of virtual page numbers in the page table
     #[allow(unused)]
     pub fn unmap(&mut self, page_table: &mut PageTable) {
         for vpn in self.vpn_range {
             self.unmap_one(page_table, vpn);
         }
     }
+    /// Get the start virtual page number
     #[allow(unused)]
     pub fn shrink_to(&mut self, page_table: &mut PageTable, new_end: VirtPageNum) {
         for vpn in VPNRange::new(new_end, self.vpn_range.get_end()) {
@@ -327,6 +364,7 @@ impl MapArea {
         }
         self.vpn_range = VPNRange::new(self.vpn_range.get_start(), new_end);
     }
+    /// Append new virtual page numbers to the existing range in the page table
     #[allow(unused)]
     pub fn append_to(&mut self, page_table: &mut PageTable, new_end: VirtPageNum) {
         for vpn in VPNRange::new(self.vpn_range.get_end(), new_end) {

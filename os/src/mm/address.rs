@@ -174,6 +174,12 @@ impl PhysAddr {
     pub fn get_mut<T>(&self) -> &'static mut T {
         unsafe { (self.0 as *mut T).as_mut().unwrap() }
     }
+
+    /// Combine a physical page number (ppn) and an offset to create a full physical address.
+    pub fn combine(ppn: PhysPageNum, offset: usize) -> Self {
+        assert!(offset < PAGE_SIZE, "Offset must be within a page!");
+        Self((ppn.0 << PAGE_SIZE_BITS) + offset)
+    }
 }
 impl PhysPageNum {
     /// Get the reference of page table(array of ptes)
