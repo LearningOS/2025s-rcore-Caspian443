@@ -142,6 +142,11 @@ impl PhysAddr {
     pub fn aligned(&self) -> bool {
         self.page_offset() == 0
     }
+    /// Combine a physical page number (ppn) and an offset to create a full physical address.
+    pub fn combine(ppn: PhysPageNum, offset: usize) -> Self {
+        assert!(offset < PAGE_SIZE, "Offset must be within a page!");
+        Self((ppn.0 << PAGE_SIZE_BITS) + offset)
+    }
 }
 impl From<PhysAddr> for PhysPageNum {
     fn from(v: PhysAddr) -> Self {
