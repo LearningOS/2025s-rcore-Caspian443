@@ -3,7 +3,7 @@ use super::TaskContext;
 use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
 use crate::config::TRAP_CONTEXT_BASE;
 use crate::fs::{File, Stdin, Stdout};
-use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
+use crate::mm::{MapPermission, MemorySet, PhysPageNum, VirtAddr, VirtPageNum, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
 use alloc::sync::{Arc, Weak};
@@ -23,7 +23,7 @@ pub struct TaskControlBlock {
     pub kernel_stack: KernelStack,
 
     /// Mutable
-    inner: UPSafeCell<TaskControlBlockInner>,
+    pub(crate) inner: UPSafeCell<TaskControlBlockInner>,
 }
 
 impl TaskControlBlock {
@@ -36,8 +36,51 @@ impl TaskControlBlock {
         let inner = self.inner_exclusive_access();
         inner.memory_set.token()
     }
+
+    /// Unmaps a memory region at the specified virtual address.
+    pub fn task_munmap(&self, start: usize, len: usize) -> Result<(), ()> {
+        let mut inner = self.inner.exclusive_access();
+        let memory_set = &mut inner.memory_set;
+
+        memory_set.unmmap(start, len)
+    }
+
+    /// Maps a memory region at the specified virtual address with given permissions.
+    pub fn task_mmap(
+        &self,
+        virt_addr: VirtAddr,
+        len: usize,
+        permission: MapPermission,
+    ) -> Result<VirtAddr, ()> {
+        
+        let mut inner = self.inner.exclusive_access();
+        let memory_set = &mut inner.memory_set;
+
+        // Create a new map area with the given parameters
+        let start_va = virt_addr;
+        let end_va = VirtAddr::from(virt_addr.0 + len);
+
+        // check valid
+        let start_vpn = VirtPageNum::from(start_va);
+        let end_vpn = VirtPageNum::from(end_va.ceil());
+        for vpn in start_vpn.0 .. end_vpn.0 {
+            if let Some(pte) = memory_set.translate(VirtPageNum(vpn)) {
+                if pte.is_valid() {
+                    println!("vpn {} has been occupied!", vpn);
+                    return Err(());
+                }
+            }
+        }
+
+        // Insert the map area into the memory set
+        memory_set.insert_framed_area(start_va, end_va, permission);
+
+        // Return the starting virtual address on success
+        Ok(start_va)
+    }
 }
 
+/// Inner contents of a task control block, containing concrete task information
 pub struct TaskControlBlockInner {
     /// The physical page number of the frame where the trap context is placed
     pub trap_cx_ppn: PhysPageNum,
@@ -64,6 +107,7 @@ pub struct TaskControlBlockInner {
 
     /// It is set when active exit or execution error occurs
     pub exit_code: i32,
+    /// File descriptor table
     pub fd_table: Vec<Option<Arc<dyn File + Send + Sync>>>,
 
     /// Heap bottom
@@ -71,21 +115,30 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    /// priority
+    pub priority: usize,
 }
 
 impl TaskControlBlockInner {
+    /// Get the kernel stack
     pub fn get_trap_cx(&self) -> &'static mut TrapContext {
         self.trap_cx_ppn.get_mut()
     }
+    /// Get the kernel stack top
     pub fn get_user_token(&self) -> usize {
         self.memory_set.token()
     }
+    /// Get the kernel stack top
     fn get_status(&self) -> TaskStatus {
         self.task_status
     }
+    /// Check if the task's status is zombie
     pub fn is_zombie(&self) -> bool {
         self.get_status() == TaskStatus::Zombie
     }
+
+    /// Check if the task's status is running
     pub fn alloc_fd(&mut self) -> usize {
         if let Some(fd) = (0..self.fd_table.len()).find(|fd| self.fd_table[*fd].is_none()) {
             fd
@@ -135,6 +188,7 @@ impl TaskControlBlock {
                     ],
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    priority: 16,
                 })
             },
         };
@@ -216,6 +270,7 @@ impl TaskControlBlock {
                     fd_table: new_fd_table,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    priority: parent_inner.priority,
                 })
             },
         });

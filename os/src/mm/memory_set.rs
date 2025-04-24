@@ -318,6 +318,35 @@ impl MemorySet {
             false
         }
     }
+
+    
+    /// unmmap a range of virtual addresses to physical addresses
+    pub fn unmmap(&mut self, start: usize, len: usize) -> Result<(), ()> {
+        let va_start: VirtAddr = start.into();
+        if !va_start.aligned() {
+            debug!("unmap fail don't aligned");
+            return Err(());
+        }
+        let mut va_start: VirtPageNum = va_start.into();
+    
+        let va_end: VirtAddr = (start + len).into();
+        let va_end: VirtPageNum = va_end.ceil();
+    
+        while va_start != va_end {
+            // println!("unmap va_start = {}", va_start.0);
+            if let Some(item) = self.page_table.translate(va_start) {
+                if !item.is_valid() {
+                    debug!("unmap on no map vpn");
+                    return Err(());
+                }
+            } else {
+                return Err(());
+            }
+            self.page_table.unmap(va_start);
+            va_start.step();
+        }
+        return Ok(());
+    }
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {

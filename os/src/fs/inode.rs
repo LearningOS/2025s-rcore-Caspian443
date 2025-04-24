@@ -53,9 +53,29 @@ impl OSInode {
         }
         v
     }
+
+    /// Get the inode id
+    pub fn get_inode_id(&self) -> u64 {
+        let inner = self.inner.exclusive_access();
+        inner.inode.block_id as u64
+    }
+
+    /// Get the inode position (block_id, block_offset)
+    pub fn get_inode_pos(&self) -> (usize, usize) {
+        let inner = self.inner.exclusive_access();
+        (inner.inode.block_id as usize, inner.inode.block_offset)
+    }
+
+    /// Get the current offset of the inode
+    pub fn get_offset(&self) -> usize {
+        let inner = self.inner.exclusive_access();
+        inner.offset
+    }
 }
 
 lazy_static! {
+    /// The root inode of the filesystem.
+    /// Used to access files in the filesystem.
     pub static ref ROOT_INODE: Arc<Inode> = {
         let efs = EasyFileSystem::open(BLOCK_DEVICE.clone());
         Arc::new(EasyFileSystem::root_inode(&efs))
