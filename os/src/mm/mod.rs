@@ -23,9 +23,33 @@ pub use page_table::{
     PageTableEntry, UserBuffer, UserBufferIterator,
 };
 
+use crate::task::current_user_token;
+
 /// initiate heap allocator, frame allocator and kernel space
 pub fn init() {
     heap_allocator::init_heap();
     frame_allocator::init_frame_allocator();
     KERNEL_SPACE.exclusive_access().activate();
 }
+
+/// convert a virtual address to a physical address
+pub fn virt2phys_addr(virt_addr: VirtAddr) -> Option<PhysAddr> {
+            let offset = virt_addr.page_offset();
+            let vpn = virt_addr.floor();
+            let ppn = PageTable::from_token(current_user_token())
+                .translate(vpn)
+                .and_then(|pte| {
+                    if pte.is_valid() {
+                        Some(pte.ppn())
+                    } else {
+                        None
+                    }
+                });
+        
+            if let Some(ppn) = ppn {
+                Some(PhysAddr::combine(ppn, offset))
+            } else {
+                println!("virt2phys_addr() fail");
+                None
+            }
+        }

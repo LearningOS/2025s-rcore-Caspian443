@@ -10,4 +10,7 @@
     // "rust-analyzer.cargo.features": [
     //     "board_qemu"
     // ]
+    "rust-analyzer.linkedProjects": [
+        "/root/2025s-rcore-Caspian443/os/Cargo.toml"
+    ],
 }
